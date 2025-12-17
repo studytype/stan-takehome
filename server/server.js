@@ -24,7 +24,14 @@ const assemblyai = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY
 });
 
-app.use(cors());
+// CORS configuration
+app.use(cors({
+  origin: "https://stan-takehome.vercel.app" || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

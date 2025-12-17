@@ -71,7 +71,7 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
     }
 
     const videoPath = req.file.path;
-    const videoUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
+    const videoUrl = `https://stan-takehome.onrender.com/uploads/${req.file.filename}`;
     const outputPath = path.join(outputsDir, `${jobId}_output.mp4`);
 
     console.log(`[${jobId}] Transcribing...`);

@@ -17,6 +17,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 const assemblyai = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY
@@ -71,7 +72,7 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
     }
 
     const videoPath = req.file.path;
-    const videoUrl = `https://stan-takehome.onrender.com/uploads/${req.file.filename}`;
+    const videoUrl = `${BASE_URL}/uploads/${req.file.filename}`;
     const outputPath = path.join(outputsDir, `${jobId}_output.mp4`);
 
     console.log(`[${jobId}] Transcribing...`);
@@ -86,6 +87,7 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
       serveUrl: bundleLocation,
       id: 'CaptionedVideo',
       inputProps: { videoUrl, captions },
+      timeoutInMilliseconds: 60000,
     });
 
     console.log(`[${jobId}] Rendering video...`);
@@ -95,6 +97,7 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
       codec: 'h264',
       outputLocation: outputPath,
       inputProps: { videoUrl, captions },
+      timeoutInMilliseconds: 120000,
     });
 
     console.log(`[${jobId}] Done!`);

@@ -61,6 +61,7 @@ async function transcribeVideo(videoPath) {
   return { text: transcript.text, captions };
 }
 
+
 app.post('/api/process', upload.single('video'), async (req, res) => {
   const jobId = uuidv4();
   

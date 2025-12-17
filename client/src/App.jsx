@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 
+const API_URL = import.meta.env.VITE_API_URL || ''
+
 export default function App() {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -67,7 +69,7 @@ export default function App() {
     formData.append('video', file)
 
     try {
-      const response = await axios.post('/api/process', formData, {
+      const response = await axios.post(`${API_URL}/api/process`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
           const percent = Math.round((e.loaded * 100) / e.total)
@@ -76,7 +78,11 @@ export default function App() {
         }
       })
 
-      setResult(response.data)
+      // Prepend API_URL to video URL if it's a relative path
+      const videoUrl = response.data.videoUrl.startsWith('http') 
+        ? response.data.videoUrl 
+        : `${API_URL}${response.data.videoUrl}`
+      setResult({ ...response.data, videoUrl })
       setStatus('complete')
     } catch (err) {
       setError(err.response?.data?.details || err.message)

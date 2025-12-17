@@ -8,7 +8,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { AssemblyAI } from 'assemblyai';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
-import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -89,17 +88,8 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
     const videoPath = req.file.path;
     const outputPath = path.join(outputsDir, `${jobId}_output.mp4`);
 
-    // Convert video to MP4 for browser compatibility
-    const convertedFilename = `${jobId}_converted.mp4`;
-    const convertedPath = path.join(uploadsDir, convertedFilename);
-    
-    console.log(`[${jobId}] Converting video to MP4...`);
-    convertToMp4(videoPath, convertedPath);
-    
-    const videoUrl = `${BASE_URL}/uploads/${convertedFilename}`;
-
     console.log(`[${jobId}] Transcribing...`);
-    const { text, captions } = await transcribeVideo(convertedPath);
+    const { text, captions } = await transcribeVideo(videoPath);
 
     console.log(`[${jobId}] Bundling Remotion...`);
     const bundleLocation = await bundle({

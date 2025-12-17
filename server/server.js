@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AssemblyAI } from 'assemblyai';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
+import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -42,6 +43,20 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
 
+function convertToMp4(inputPath, outputPath) {
+  console.log('Converting video to MP4...');
+  try {
+    execSync(`ffmpeg -i "${inputPath}" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart -y "${outputPath}"`, {
+      stdio: 'inherit',
+      timeout: 300000 // 5 minute timeout
+    });
+    return outputPath;
+  } catch (error) {
+    console.error('FFmpeg conversion failed:', error.message);
+    throw new Error('Video conversion failed. Make sure FFmpeg is installed.');
+  }
+}
+
 async function transcribeVideo(videoPath) {
   console.log('Transcribing with AssemblyAI...');
   
@@ -72,11 +87,19 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
     }
 
     const videoPath = req.file.path;
-    const videoUrl = `${BASE_URL}/uploads/${req.file.filename}`;
     const outputPath = path.join(outputsDir, `${jobId}_output.mp4`);
 
+    // Convert video to MP4 for browser compatibility
+    const convertedFilename = `${jobId}_converted.mp4`;
+    const convertedPath = path.join(uploadsDir, convertedFilename);
+    
+    console.log(`[${jobId}] Converting video to MP4...`);
+    convertToMp4(videoPath, convertedPath);
+    
+    const videoUrl = `${BASE_URL}/uploads/${convertedFilename}`;
+
     console.log(`[${jobId}] Transcribing...`);
-    const { text, captions } = await transcribeVideo(videoPath);
+    const { text, captions } = await transcribeVideo(convertedPath);
 
     console.log(`[${jobId}] Bundling Remotion...`);
     const bundleLocation = await bundle({

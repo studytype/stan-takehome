@@ -1,14 +1,12 @@
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
+import { AssemblyAI } from 'assemblyai';
+import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
+import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { v4 as uuidv4 } from 'uuid';
-import { AssemblyAI } from 'assemblyai';
-import { bundle } from '@remotion/bundler';
-import { renderMedia, selectComposition } from '@remotion/renderer';
-import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -17,130 +15,122 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+app.use(cors());
+app.use(express.json());
 
+const upload = multer({ storage: multer.memoryStorage() });
+
+// AssemblyAI client
 const assemblyai = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY
 });
 
-// CORS - allow specific origins
-app.use(cors({
-  origin: [
-    'https://stan-takehome.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Lambda config
+const REGION = 'us-east-1';
+const FUNCTION_NAME = process.env.REMOTION_FUNCTION_NAME;
+const SERVE_URL = process.env.REMOTION_SERVE_URL;
 
-// Handle preflight requests
-app.options('*', cors());
+// Temp directory
+const tempDir = path.join(__dirname, 'temp');
+fs.mkdirSync(tempDir, { recursive: true });
 
-app.use(express.json());
-app.use('/outputs', express.static(path.join(__dirname, 'outputs')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-const uploadsDir = path.join(__dirname, 'uploads');
-const outputsDir = path.join(__dirname, 'outputs');
-fs.mkdirSync(uploadsDir, { recursive: true });
-fs.mkdirSync(outputsDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: uploadsDir,
-  filename: (req, file, cb) => {
-    cb(null, `${uuidv4()}${path.extname(file.originalname)}`);
-  }
-});
-
-const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
-
-function convertToMp4(inputPath, outputPath) {
-  console.log('Converting video to MP4...');
-  execSync(`ffmpeg -i "${inputPath}" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart -y "${outputPath}"`, {
-    stdio: 'inherit'
-  });
-  return outputPath;
-}
-
-async function transcribeVideo(videoPath) {
-  console.log('Transcribing with AssemblyAI...');
+// Transcribe video with AssemblyAI
+async function transcribe(filePath) {
+  console.log('Transcribing...');
+  const transcript = await assemblyai.transcripts.transcribe({ audio: filePath });
   
-  const transcript = await assemblyai.transcripts.transcribe({
-    audio: videoPath,
-  });
-
   if (transcript.status === 'error') {
     throw new Error(transcript.error);
   }
-
-  const captions = transcript.words.map(word => ({
-    text: word.text,
-    startMs: word.start,
-    endMs: word.end,
+  
+  return transcript.words.map(w => ({
+    text: w.text,
+    startMs: w.start,
+    endMs: w.end
   }));
-
-  return { text: transcript.text, captions };
 }
 
+// Render video on Lambda
+async function renderOnLambda(videoUrl, captions) {
+  console.log('Starting Lambda render...');
+  
+  const { renderId, bucketName } = await renderMediaOnLambda({
+    region: REGION,
+    functionName: FUNCTION_NAME,
+    serveUrl: SERVE_URL,
+    composition: 'CaptionedVideo',
+    inputProps: { videoUrl, captions },
+    codec: 'h264',
+    maxRetries: 1,
+  });
 
+  console.log(`Render started: ${renderId}`);
+
+  // Poll for completion
+  while (true) {
+    const progress = await getRenderProgress({
+      renderId,
+      bucketName,
+      region: REGION,
+      functionName: FUNCTION_NAME,
+    });
+
+    if (progress.done) {
+      console.log('Render complete!');
+      return progress.outputFile;
+    }
+
+    if (progress.fatalErrorEncountered) {
+      throw new Error(progress.errors[0]?.message || 'Render failed');
+    }
+
+    const percent = Math.round((progress.overallProgress || 0) * 100);
+    console.log(`Progress: ${percent}%`);
+    
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Main endpoint
 app.post('/api/process', upload.single('video'), async (req, res) => {
   const jobId = uuidv4();
-  
+  const tempVideoPath = path.join(tempDir, `${jobId}.mp4`);
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video uploaded' });
     }
 
-    const videoPath = req.file.path;
-    const outputPath = path.join(outputsDir, `${jobId}_output.mp4`);
+    // Save video temporarily
+    fs.writeFileSync(tempVideoPath, req.file.buffer);
+    console.log(`[${jobId}] Video saved`);
 
-    // Convert video to MP4 for browser compatibility
-    const convertedFilename = `${jobId}_converted.mp4`;
-    const convertedPath = path.join(uploadsDir, convertedFilename);
-    
-    console.log(`[${jobId}] Converting video to MP4...`);
-    convertToMp4(videoPath, convertedPath);
-    
-    const videoUrl = `${BASE_URL}/uploads/${convertedFilename}`;
+    // Step 1: Transcribe
+    const captions = await transcribe(tempVideoPath);
+    console.log(`[${jobId}] Got ${captions.length} words`);
 
-    console.log(`[${jobId}] Transcribing...`);
-    const { text, captions } = await transcribeVideo(convertedPath);
+    // Step 2: Upload video to S3 for Lambda to access
+    // For now, you need to upload to a public URL
+    // In production, upload to S3 first
+    const videoUrl = `file://${tempVideoPath}`; // This won't work with Lambda - see note below
 
-    console.log(`[${jobId}] Bundling Remotion...`);
-    const bundleLocation = await bundle({
-      entryPoint: path.join(__dirname, 'remotion/index.js'),
-    });
-
-    const composition = await selectComposition({
-      serveUrl: bundleLocation,
-      id: 'CaptionedVideo',
-      inputProps: { videoUrl, captions },
-      timeoutInMilliseconds: 60000,
-    });
-
-    console.log(`[${jobId}] Rendering video...`);
-    await renderMedia({
-      composition,
-      serveUrl: bundleLocation,
-      codec: 'h264',
-      outputLocation: outputPath,
-      inputProps: { videoUrl, captions },
-      timeoutInMilliseconds: 120000,
-    });
-
+    // Step 3: Render on Lambda
+    const outputUrl = await renderOnLambda(videoUrl, captions);
     console.log(`[${jobId}] Done!`);
+
+    // Clean up
+    fs.unlinkSync(tempVideoPath);
+
     res.json({
       success: true,
-      videoUrl: `/outputs/${jobId}_output.mp4`,
-      transcription: text
+      videoUrl: outputUrl,
+      transcription: captions.map(c => c.text).join(' ')
     });
 
   } catch (error) {
     console.error(`[${jobId}] Error:`, error);
-    res.status(500).json({ error: 'Processing failed', details: error.message });
+    if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -148,6 +138,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

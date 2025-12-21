@@ -1,16 +1,1 @@
 @import "tailwindcss";
-
-body {
-  background: #ffffff;
-  color: #111;
-  font-family: system-ui, -apple-system, sans-serif;
-  min-height: 100vh;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
-}

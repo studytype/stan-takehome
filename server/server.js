@@ -1,13 +1,14 @@
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
-import { AssemblyAI } from 'assemblyai';
-import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { AssemblyAI } from 'assemblyai';
+import { renderMediaOnLambda, getRenderProgress, getOrCreateBucket } from '@remotion/lambda/client';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { v4 as uuidv4 } from 'uuid';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -25,14 +26,41 @@ const assemblyai = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY
 });
 
-// Lambda config
-const REGION = 'us-east-1';
+// AWS config
+const REGION = process.env.REMOTION_AWS_REGION || 'us-east-1';
 const FUNCTION_NAME = process.env.REMOTION_FUNCTION_NAME;
 const SERVE_URL = process.env.REMOTION_SERVE_URL;
+
+// S3 client
+const s3 = new S3Client({
+  region: REGION,
+  credentials: {
+    accessKeyId: process.env.REMOTION_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.REMOTION_AWS_SECRET_ACCESS_KEY,
+  }
+});
 
 // Temp directory
 const tempDir = path.join(__dirname, 'temp');
 fs.mkdirSync(tempDir, { recursive: true });
+
+// Upload video to S3
+async function uploadToS3(buffer, filename, bucketName) {
+  console.log('Uploading to S3...');
+  
+  const key = `uploads/${filename}`;
+  
+  await s3.send(new PutObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+    Body: buffer,
+    ContentType: 'video/mp4',
+  }));
+  
+  const url = `https://${bucketName}.s3.${REGION}.amazonaws.com/${key}`;
+  console.log('Uploaded:', url);
+  return url;
+}
 
 // Transcribe video with AssemblyAI
 async function transcribe(filePath) {
@@ -101,24 +129,26 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
       return res.status(400).json({ error: 'No video uploaded' });
     }
 
-    // Save video temporarily
-    fs.writeFileSync(tempVideoPath, req.file.buffer);
-    console.log(`[${jobId}] Video saved`);
+    console.log(`[${jobId}] Starting...`);
 
-    // Step 1: Transcribe
+    // Save video temporarily (for AssemblyAI)
+    fs.writeFileSync(tempVideoPath, req.file.buffer);
+
+    // Step 1: Transcribe with AssemblyAI
     const captions = await transcribe(tempVideoPath);
     console.log(`[${jobId}] Got ${captions.length} words`);
 
-    // Step 2: Upload video to S3 for Lambda to access
-    // For now, you need to upload to a public URL
-    // In production, upload to S3 first
-    const videoUrl = `file://${tempVideoPath}`; // This won't work with Lambda - see note below
+    // Step 2: Get Remotion's S3 bucket
+    const { bucketName } = await getOrCreateBucket({ region: REGION });
 
-    // Step 3: Render on Lambda
+    // Step 3: Upload video to S3
+    const videoUrl = await uploadToS3(req.file.buffer, `${jobId}.mp4`, bucketName);
+
+    // Step 4: Render on Lambda
     const outputUrl = await renderOnLambda(videoUrl, captions);
     console.log(`[${jobId}] Done!`);
 
-    // Clean up
+    // Clean up temp file
     fs.unlinkSync(tempVideoPath);
 
     res.json({

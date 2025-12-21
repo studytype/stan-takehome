@@ -4,12 +4,10 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { AssemblyAI } from 'assemblyai';
-import { renderMediaOnLambda, getRenderProgress, getOrCreateBucket } from '@remotion/lambda/client';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
-
+import { transcribeVideoWithAssemblyAI } from './utils/transcribeVideoWithAssemblyAI.js';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,62 +19,16 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// AssemblyAI client
-const assemblyai = new AssemblyAI({
-  apiKey: process.env.ASSEMBLYAI_API_KEY
-});
-
 // AWS config
 const REGION = process.env.REMOTION_AWS_REGION || 'us-east-1';
 const FUNCTION_NAME = process.env.REMOTION_FUNCTION_NAME;
-const SERVE_URL = process.env.REMOTION_SERVE_URL;
+const SERVER_URL = process.env.REMOTION_SERVER_URL;
 
-// S3 client
-const s3 = new S3Client({
-  region: REGION,
-  credentials: {
-    accessKeyId: process.env.REMOTION_AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.REMOTION_AWS_SECRET_ACCESS_KEY,
-  }
-});
 
 // Temp directory
 const tempDir = path.join(__dirname, 'temp');
 fs.mkdirSync(tempDir, { recursive: true });
 
-// Upload video to S3
-async function uploadToS3(buffer, filename, bucketName) {
-  console.log('Uploading to S3...');
-  
-  const key = `uploads/${filename}`;
-  
-  await s3.send(new PutObjectCommand({
-    Bucket: bucketName,
-    Key: key,
-    Body: buffer,
-    ContentType: 'video/mp4',
-  }));
-  
-  const url = `https://${bucketName}.s3.${REGION}.amazonaws.com/${key}`;
-  console.log('Uploaded:', url);
-  return url;
-}
-
-// Transcribe video with AssemblyAI
-async function transcribe(filePath) {
-  console.log('Transcribing...');
-  const transcript = await assemblyai.transcripts.transcribe({ audio: filePath });
-  
-  if (transcript.status === 'error') {
-    throw new Error(transcript.error);
-  }
-  
-  return transcript.words.map(w => ({
-    text: w.text,
-    startMs: w.start,
-    endMs: w.end
-  }));
-}
 
 // Render video on Lambda
 async function renderOnLambda(videoUrl, captions) {
@@ -135,11 +87,8 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
     fs.writeFileSync(tempVideoPath, req.file.buffer);
 
     // Step 1: Transcribe with AssemblyAI
-    const captions = await transcribe(tempVideoPath);
+    const captions = await transcribeVideoWithAssemblyAI(tempVideoPath);
     console.log(`[${jobId}] Got ${captions.length} words`);
-
-    // Step 2: Get Remotion's S3 bucket
-    const { bucketName } = await getOrCreateBucket({ region: REGION });
 
     // Step 3: Upload video to S3
     const videoUrl = await uploadToS3(req.file.buffer, `${jobId}.mp4`, bucketName);

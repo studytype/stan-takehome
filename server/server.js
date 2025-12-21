@@ -4,7 +4,6 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
 import { transcribeVideoWithAssemblyAI } from './utils/transcribeVideoWithAssemblyAI.js';
@@ -19,57 +18,12 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// AWS config
-const REGION = process.env.REMOTION_AWS_REGION || 'us-east-1';
-const FUNCTION_NAME = process.env.REMOTION_FUNCTION_NAME;
-const SERVER_URL = process.env.REMOTION_SERVER_URL;
-
 
 // Temp directory
 const tempDir = path.join(__dirname, 'temp');
 fs.mkdirSync(tempDir, { recursive: true });
 
 
-// Render video on Lambda
-async function renderOnLambda(videoUrl, captions) {
-  console.log('Starting Lambda render...');
-  
-  const { renderId, bucketName } = await renderMediaOnLambda({
-    region: REGION,
-    functionName: FUNCTION_NAME,
-    serveUrl: SERVE_URL,
-    composition: 'CaptionedVideo',
-    inputProps: { videoUrl, captions },
-    codec: 'h264',
-    maxRetries: 1,
-  });
-
-  console.log(`Render started: ${renderId}`);
-
-  // Poll for completion
-  while (true) {
-    const progress = await getRenderProgress({
-      renderId,
-      bucketName,
-      region: REGION,
-      functionName: FUNCTION_NAME,
-    });
-
-    if (progress.done) {
-      console.log('Render complete!');
-      return progress.outputFile;
-    }
-
-    if (progress.fatalErrorEncountered) {
-      throw new Error(progress.errors[0]?.message || 'Render failed');
-    }
-
-    const percent = Math.round((progress.overallProgress || 0) * 100);
-    console.log(`Progress: ${percent}%`);
-    
-    await new Promise(r => setTimeout(r, 1000));
-  }
-}
 
 // Main endpoint
 app.post('/api/process', upload.single('video'), async (req, res) => {

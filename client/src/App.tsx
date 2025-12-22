@@ -86,7 +86,7 @@ export default function App() {
         setStatus('error');
       };
 
-      xhr.open('POST', 'http://localhost:3001/api/process');
+      xhr.open('POST', 'https://stan-takehome.onrender.com/api/process');
       xhr.send(form);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -193,9 +193,6 @@ export default function App() {
                   ></div>
                 </div>
               )}
-              <div className="text-2xl font-mono text-blue-500 mb-4">
-                ⏱️ {formatTime(elapsedTime)}
-              </div>
               <p className="text-gray-400">This takes about 15-30 seconds</p>
             </div>
           )}
@@ -205,7 +202,7 @@ export default function App() {
             <div className="bg-white rounded-2xl p-6 shadow-lg">
               <div className="text-center mb-4">
                 <span className="inline-block px-4 py-2 bg-green-100 text-green-700 rounded-full font-medium">
-                  ✅ Done in {formatTime(finalTime)}!
+                  ✅ Done!
                 </span>
               </div>
               <video src={result.videoUrl} controls className="w-full rounded-xl mb-4 max-h-96 bg-black" />

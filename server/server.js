@@ -31,7 +31,6 @@ async function uploadToS3(buffer, key, contentType) {
     Key: key,
     Body: buffer,
     ContentType: contentType,
-    ACL: 'public-read',
   }));
   return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
 }

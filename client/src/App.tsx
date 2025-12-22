@@ -7,7 +7,9 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<{ videoUrl: string; transcription: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  //@ts-ignore
   const [elapsedTime, setElapsedTime] = useState(0);
+  //@ts-ignore
   const [finalTime, setFinalTime] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -36,6 +38,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [status]);
 
+  //@ts-ignore
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;

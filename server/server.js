@@ -6,50 +6,45 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
-import { transcribeVideoWithAssemblyAI } from './utils/transcribeVideoWithAssemblyAI.js';
-import { renderVideo } from './utils/renderVideo.js';
-import s3Client from './clients/s3Client.js';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { renderWithCreatomate } from './utils/renderWithCreatomate.js';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors({
-  origin: ['https://stan-takehome.vercel.app', 'http://localhost:5173', 'http://localhost:3000'],
-  credentials: true
-}));
+app.use(cors());
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+// S3 setup (to upload video so Creatomate can access it)
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  }
+});
 const BUCKET = process.env.S3_BUCKET;
-const REGION = 'us-east-2';
+const REGION = process.env.AWS_REGION || 'us-east-1';
 
-// Upload to S3
-async function uploadToS3(buffer, key, contentType) {
-  await s3Client.send(new PutObjectCommand({
+async function uploadToS3(buffer, key) {
+  await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: buffer,
-    ContentType: contentType,
+    ContentType: 'video/mp4',
   }));
   return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
 }
-
-// Temp/output directories
-const tempDir = path.join(__dirname, 'temp');
-const outputsDir = path.join(__dirname, 'outputs');
-fs.mkdirSync(tempDir, { recursive: true });
-fs.mkdirSync(outputsDir, { recursive: true });
 
 const PORT = process.env.PORT || 3001;
 
 app.post('/api/process', upload.single('video'), async (req, res) => {
   const jobId = uuidv4();
-  const tempVideoPath = path.join(tempDir, `${jobId}.mp4`);
-  const outputPath = path.join(outputsDir, `${jobId}_captioned.mp4`);
 
   try {
     if (!req.file) {
@@ -58,40 +53,22 @@ app.post('/api/process', upload.single('video'), async (req, res) => {
 
     console.log(`[${jobId}] Starting...`);
 
-    // Save locally for AssemblyAI
-    fs.writeFileSync(tempVideoPath, req.file.buffer);
-
-    // Step 1: Transcribe
-    const captions = await transcribeVideoWithAssemblyAI(tempVideoPath);
-    console.log(`[${jobId}] Got ${captions.length} words`);
-
-    // Step 2: Upload input video to S3
+    // Step 1: Upload video to S3 (so Creatomate can access it)
     console.log(`[${jobId}] Uploading to S3...`);
-    const videoUrl = await uploadToS3(req.file.buffer, `inputs/${jobId}.mp4`, 'video/mp4');
+    const videoUrl = await uploadToS3(req.file.buffer, `inputs/${jobId}.mp4`);
 
-    // Step 3: Render
-    await renderVideo(videoUrl, captions, outputPath);
-    console.log(`[${jobId}] Rendered!`);
+    // Step 2: Render with Creatomate (transcribes + adds captions automatically)
+    console.log(`[${jobId}] Rendering...`);
+    const outputUrl = await renderWithCreatomate(videoUrl);
 
-    // Step 4: Upload output to S3
-    const outputBuffer = fs.readFileSync(outputPath);
-    const outputUrl = await uploadToS3(outputBuffer, `outputs/${jobId}.mp4`, 'video/mp4');
     console.log(`[${jobId}] Done!`);
-
-    // Cleanup local files
-    fs.unlinkSync(tempVideoPath);
-    fs.unlinkSync(outputPath);
-
     res.json({
       success: true,
       videoUrl: outputUrl,
-      transcription: captions.map(c => c.text).join(' ')
     });
 
   } catch (error) {
     console.error(`[${jobId}] Error:`, error);
-    if (fs.existsSync(tempVideoPath)) fs.unlinkSync(tempVideoPath);
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     res.status(500).json({ error: error.message });
   }
 });

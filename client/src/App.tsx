@@ -7,9 +7,7 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<{ videoUrl: string; transcription: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  //@ts-ignore
   const [elapsedTime, setElapsedTime] = useState(0);
-  //@ts-ignore
   const [finalTime, setFinalTime] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -89,7 +87,7 @@ export default function App() {
         setStatus('error');
       };
 
-      xhr.open('POST', 'https://stan-takehome.onrender.com/api/process');
+      xhr.open('POST', 'http://localhost:3001/api/process');
       xhr.send(form);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');

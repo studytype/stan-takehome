@@ -1,7 +1,7 @@
 import Creatomate from 'creatomate';
 import dotenv from 'dotenv';
-
 dotenv.config();
+
 const client = new Creatomate.Client(process.env.CREATOMATE_API_KEY);
 
 export async function renderWithCreatomate(videoUrl) {

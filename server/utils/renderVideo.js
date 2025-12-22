@@ -19,6 +19,7 @@ export async function renderVideo(videoUrl, captions, outputPath) {
     serveUrl: bundleLocation,
     id: 'CaptionedVideo',
     inputProps: { videoUrl, captions },
+    timeoutInMilliseconds: 120000, // 2 min timeout for video download
   });
 
   console.log('Rendering video...');
@@ -29,6 +30,7 @@ export async function renderVideo(videoUrl, captions, outputPath) {
     codec: 'h264',
     outputLocation: outputPath,
     inputProps: { videoUrl, captions },
+    timeoutInMilliseconds: 120000, // 2 min timeout per frame
   });
 
   console.log('Render complete!');

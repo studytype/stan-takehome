@@ -22,7 +22,7 @@ app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 
 const BUCKET = process.env.S3_BUCKET;
-const REGION = process.env.AWS_REGION || 'us-east-1';
+const REGION = 'us-east-2';
 
 // Upload to S3
 async function uploadToS3(buffer, key, contentType) {
@@ -31,6 +31,7 @@ async function uploadToS3(buffer, key, contentType) {
     Key: key,
     Body: buffer,
     ContentType: contentType,
+    ACL: 'public-read',
   }));
   return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
 }

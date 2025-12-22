@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   AbsoluteFill,
-  Video,
+  OffthreadVideo,
   useCurrentFrame,
   useVideoConfig,
   spring,
@@ -113,7 +113,7 @@ export const CaptionedVideo = ({ videoUrl, captions }) => {
   
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>
-      <Video src={videoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <OffthreadVideo src={videoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       
       <AbsoluteFill style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%)' }} />
       

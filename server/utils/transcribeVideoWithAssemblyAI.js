@@ -1,3 +1,5 @@
+import assemblyai from '../clients/assemblyAIClient.js';
+
 export async function transcribeVideoWithAssemblyAI(filePath) {
     console.log('Transcribing...');
     const transcript = await assemblyai.transcripts.transcribe({ audio: filePath });

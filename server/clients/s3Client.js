@@ -1,17 +1,15 @@
-import s3Client from './s3Client.js';
+import { S3Client } from '@aws-sdk/client-s3';
+import dotenv from 'dotenv';
+dotenv.config();
 
-export async function uploadToS3(buffer, filename, bucketName) {
-    const key = `uploads/${filename}`;
-    
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-      Body: buffer,
-      ContentType: 'video/mp4',
-    }));
-    
-    const url = `https://${bucketName}.s3.${REGION}.amazonaws.com/${key}`;
-    console.log('Uploaded:', url);
-    return url;
-  }
-  ``
+const REGION = process.env.AWS_REGION || 'us-east-2';
+
+const s3Client = new S3Client({
+    region: REGION,
+    credentials: {
+        accessKeyId: process.env.REMOTION_AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.REMOTION_AWS_SECRET_ACCESS_KEY,
+    }
+});
+
+export default s3Client;
